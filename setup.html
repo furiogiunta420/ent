@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ENTROPy — First-time setup</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --bg: #0f0f0f; --surface: #1a1a1a; --border: #2a2a2a; --accent: #a214a7; --danger: #e85d75; --text: #f0f0f0; --muted: #666; }
+    body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 44px 40px; width: 100%; max-width: 420px; }
+    .logo { font-family: 'Syne', sans-serif; font-size: 26px; font-weight: 800; margin-bottom: 6px; }
+    .logo span { color: var(--accent); }
+    .tagline { color: var(--muted); font-size: 13px; margin-bottom: 28px; line-height: 1.5; }
+    .notice { background: rgba(79,110,247,0.08); border: 1px solid #da25e0bb; border-radius: 8px; padding: 12px 14px; font-size: 13px; color: #aa17af; margin-bottom: 24px; line-height: 1.5; }
+    .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+    .field label { font-size: 12px; color: var(--muted); font-weight: 500; }
+    .field input { background: #111; border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; color: var(--text); font-size: 15px; font-family: 'DM Sans', sans-serif; outline: none; transition: border-color 0.2s; }
+    .field input:focus { border-color: var(--accent); }
+    .field input::placeholder { color: #444; }
+    .btn { width: 100%; background: var(--accent); border: none; border-radius: 10px; padding: 13px; font-size: 15px; font-weight: 500; color: #fff; font-family: 'DM Sans', sans-serif; cursor: pointer; transition: background 0.2s; margin-top: 8px; }
+    .btn:hover:not(:disabled) { background: #aa17af; }
+    .btn:disabled { opacity: 0.6; cursor: default; }
+    .error { background: rgba(232,93,117,0.1); border: 1px solid rgba(232,93,117,0.3); border-radius: 8px; padding: 10px 14px; font-size: 13px; color: var(--danger); margin-top: 14px; display: none; }
+    .status { font-size: 12px; color: var(--muted); text-align: center; margin-top: 10px; min-height: 18px; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">ENTROP<span>y</span></div>
+  <div class="tagline">First-time setup</div>
+  <div class="notice">This page is only available when no users exist. Create your admin account — this cannot be undone without manually editing <code>.env</code>.</div>
+
+  <div class="field">
+    <label>Admin username</label>
+    <input type="text" id="username" placeholder="e.g. admin" autocapitalize="none"/>
+  </div>
+  <div class="field">
+    <label>Password</label>
+    <input type="password" id="password" placeholder="Choose a strong password"/>
+  </div>
+  <div class="field">
+    <label>Confirm password</label>
+    <input type="password" id="password2" placeholder="Repeat password"/>
+  </div>
+
+  <button class="btn" id="setup-btn" onclick="doSetup()">Create admin account</button>
+  <div class="status" id="status"></div>
+  <div class="error" id="error-box"></div>
+</div>
+
+<script type="module">
+  import { deriveSessionKeys, generateGroupKey, wrapGroupKey, b64encode } from '/static/crypto.js';
+
+  window.doSetup = async function() {
+    const username  = document.getElementById("username").value.trim();
+    const password  = document.getElementById("password").value;
+    const password2 = document.getElementById("password2").value;
+    const btn       = document.getElementById("setup-btn");
+    const errBox    = document.getElementById("error-box");
+    const status    = document.getElementById("status");
+
+    errBox.style.display = "none";
+
+    if (!username || !password) { showError("All fields required."); return; }
+    if (password !== password2) { showError("Passwords do not match."); return; }
+    if (password.length < 10)   { showError("Password must be at least 10 characters for an admin account."); return; }
+
+    btn.disabled = true;
+    status.textContent = "Deriving keys (this takes a moment)…";
+
+    try {
+      const { wrapKey, authToken } = await deriveSessionKeys(password, username);
+      status.textContent = "Creating account…";
+
+      const res  = await fetch("/setup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, auth_token: authToken }),
+      });
+      const data = await res.json();
+
+      if (!res.ok || data.error) { showError(data.error || "Setup failed."); return; }
+
+      // Log in
+      status.textContent = "Logging in…";
+      const loginRes = await fetch("/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, auth_token: authToken }),
+      });
+      if (!loginRes.ok) { showError("Login after setup failed. Go to /login."); return; }
+
+      status.textContent = "Generating group key…";
+      const groupKey = await generateGroupKey();
+      const bundle   = await wrapGroupKey(groupKey, wrapKey);
+      await fetch("/groupkey", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bundle }),
+      });
+
+      const raw = await crypto.subtle.exportKey("raw", groupKey);
+      sessionStorage.setItem("groupKey_raw", b64encode(raw));
+      sessionStorage.setItem("username", username);
+
+      status.textContent = "Done! Redirecting…";
+      setTimeout(() => window.location.href = "/", 800);
+    } catch(e) {
+      showError("Error: " + e.message);
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
+  function showError(msg) {
+    const e = document.getElementById("error-box");
+    e.textContent = msg;
+    e.style.display = "block";
+    document.getElementById("status").textContent = "";
+    document.getElementById("setup-btn").disabled = false;
+  }
+
+  document.getElementById("password").addEventListener("keydown", e => {if (e.key = "Enter") document.getElementById("password2").focus(); });
+  document.getElementById("password2").addEventListener("keydown", e => {if (e.key == "Enter") window.doSetup(); });
+  document.getElementById("username").addEventListener("keydown", e => {if (e.key == "Enter") document.getElementById("password").focus(); });
+
+
+</script>
+</body>
+</html>

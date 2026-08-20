@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ENTROPy — Admin</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --bg:#0f0f0f; --surface:#1a1a1a; --surface2:#222; --border:#2a2a2a; --accent:#a214a7; --danger:#e85d75; --success:#3ecf8e; --text:#f0f0f0; --muted:#666; }
+    html, body { min-height: 100%; background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; }
+    header { display:flex; align-items:center; justify-content:space-between; padding:14px 28px; border-bottom:1px solid var(--border); background:var(--surface); position:sticky; top:0; z-index:10; }
+    .logo { font-family:'Syne',sans-serif; font-size:20px; font-weight:800; }
+    .logo span { color:var(--accent); }
+    .logo sub { font-size:11px; color:var(--muted); font-family:'DM Sans',sans-serif; font-weight:400; margin-left:6px; vertical-align:middle; }
+    .header-right { display:flex; align-items:center; gap:10px; }
+    .back-btn, .logout-btn { background:none; border:1px solid var(--border); color:var(--muted); border-radius:8px; padding:6px 14px; font-size:13px; font-family:'DM Sans',sans-serif; cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; gap:6px; transition:color 0.2s, border-color 0.2s; }
+    .back-btn:hover { color:var(--accent); border-color:var(--accent); }
+    .logout-btn:hover { color:var(--muted); border-color:var(--danger); } 
+    main { max-width:860px; margin:0 auto; padding:36px 24px 60px; }
+    .page-title { font-family:'Syne',sans-serif; font-size:26px; font-weight:800; margin-bottom:4px; }
+    .page-sub { color:#a214a7; font-size:14px; margin-bottom:36px; }
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:28px; margin-bottom:24px; }
+    .card-title { font-family:'Syne',sans-serif; font-size:15px; font-weight:700; color:var(--text); margin-bottom:20px; display:flex; align-items:center; gap:8px; }
+    .card-title .dot { width:7px; height:7px; border-radius:50%; background:var(--accent); flex-shrink:0; }
+
+    .user-table { width:100%; border-collapse:collapse; }
+    .user-table th { text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:var(--muted); padding:0 12px 12px; font-weight:500; }
+    .user-table td { padding:10px 12px; border-top:1px solid var(--border); vertical-align:middle; }
+    .user-row:hover td { background:rgba(255,255,255,0.02); }
+    .username-cell { font-weight:500; font-size:14px; display:flex; align-items:center; gap:8px; }
+    .admin-pill { background:rgba(232,93,117,0.12); border:1px solid rgba(232,93,117,0.3); color:var(--danger); border-radius:20px; padding:2px 8px; font-size:11px; font-weight:500; }
+    .action-btns { display:flex; gap:6px; justify-content:flex-end; }
+    .btn-icon { background:none; border:1px solid var(--border); color:var(--muted); border-radius:8px; padding:6px 10px; font-size:12px; font-family:'DM Sans',sans-serif; cursor:pointer; transition:all 0.18s; white-space:nowrap; }
+    .btn-icon:hover { color:var(--text); border-color:#444; }
+    .btn-icon.danger:hover { color:var(--danger); border-color:var(--danger); }
+    .btn-icon.promote:hover { color:var(--accent); border-color:var(--accent); }
+    .empty-users { text-align:center; color:var(--muted); font-size:14px; padding:24px 0; }
+
+    .form-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+    @media(max-width:560px) { .form-grid { grid-template-columns:1fr; } }
+    .field { display:flex; flex-direction:column; gap:6px; }
+    .field label { font-size:12px; color:var(--muted); font-weight:500; }
+    .field input { background:#111; border:1px solid var(--border); border-radius:10px; padding:10px 14px; color:var(--text); font-size:14px; font-family:'DM Sans',sans-serif; outline:none; transition:border-color 0.2s; }
+    .field input:focus { border-color:var(--accent); }
+    .field input::placeholder { color:#444; }
+    .checkbox-row { display:flex; align-items:center; gap:8px; margin-top:4px; }
+    .checkbox-row input[type=checkbox] { accent-color:var(--accent); width:15px; height:15px; cursor:pointer; }
+    .checkbox-row label { font-size:13px; color:#aaa; cursor:pointer; }
+    .form-footer { display:flex; align-items:center; justify-content:space-between; margin-top:18px; flex-wrap:wrap; gap:10px; }
+    .form-error { font-size:13px; color:var(--danger); min-height:18px; }
+    .btn-primary { background:var(--accent); border:none; border-radius:10px; padding:10px 22px; font-size:14px; font-weight:500; color:#fff; font-family:'DM Sans',sans-serif; cursor:pointer; transition:background 0.2s; }
+    .btn-primary:hover { background:#d726dd; }
+    .btn-primary:disabled { opacity:0.5; cursor:default; }
+
+    .e2e-notice { background:rgba(195, 62, 207, 0.06); border:1px solid rgba(204, 61, 185, 0.2); border-radius:10px; padding:14px 16px; font-size:13px; color:var(--muted); line-height:1.6; margin-bottom:24px; }
+
+    #toast { position:fixed; bottom:28px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:12px 20px; font-size:14px; color:var(--text); opacity:0; transition:opacity 0.25s, transform 0.25s; pointer-events:none; z-index:999; white-space:nowrap; box-shadow:0 8px 32px rgba(0,0,0,0.4); }
+    #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+    #toast.success { border-color:rgba(62,207,142,0.4); color:var(--success); }
+    #toast.error   { border-color:rgba(232,93,117,0.4); color:var(--danger); }
+
+    .modal-overlay { display:none; position:fixed; inset:0; z-index:100; background:rgba(0,0,0,0.8); align-items:center; justify-content:center; }
+    .modal-overlay.show { display:flex; }
+    .modal { background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:32px 28px; max-width:380px; width:90%; }
+    .modal-title { font-family:'Syne',sans-serif; font-size:18px; font-weight:800; margin-bottom:6px; }
+    .modal-sub { color:var(--muted); font-size:13px; margin-bottom:20px; line-height:1.5; }
+    .modal-btns { display:flex; gap:10px; margin-top:20px; }
+    .modal-cancel { flex:1; background:none; border:1px solid var(--border); color:var(--muted); border-radius:10px; padding:10px; font-size:14px; font-family:'DM Sans',sans-serif; cursor:pointer; }
+    .modal-cancel:hover { color:var(--text); }
+    .modal-confirm { flex:1; background:var(--danger); border:none; color:#fff; border-radius:10px; padding:10px; font-size:14px; font-weight:500; font-family:'DM Sans',sans-serif; cursor:pointer; }
+    .modal-confirm.accent { background:var(--accent); }
+    .modal-confirm.accent:hover { background:#a214a7  ; }
+    .modal-confirm:hover { background:#c94060; }
+  </style>
+</head>
+<body>
+<header>
+  <div class="logo">ENTROP<span>y</span><sub>admin panel</sub></div>
+  <div class="header-right">
+    <a class="back-btn" href="/">← Back to chat</a>
+    <a class="logout-btn" href="/logout">Sign out</a>
+  </div>
+</header>
+
+<main>
+  <div class="page-title">User Management</div>
+  <div class="page-sub">Signed in as <strong>{{ username }}</strong></div>
+
+  <div class="e2e-notice">
+    🔒 <strong>E2E note:</strong> Password changes are intentionally disabled.
+    Each user's encryption key is derived from their password — changing it server-side
+    would break their message history. To reset access: remove the user and re-add them
+    with a new password. They will lose their message history, which is the correct behaviour.
+  </div>
+
+  <!-- User list -->
+  <div class="card">
+    <div class="card-title"><span class="dot"></span>Active users</div>
+    <table class="user-table">
+      <thead>
+        <tr>
+          <th>Username</th>
+          <th style="text-align:right">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="user-tbody">
+        {% for u in users %}
+        <tr class="user-row" data-username="{{ u.username }}">
+          <td>
+            <div class="username-cell">
+              {{ u.username }}
+              {% if u.is_admin %}<span class="admin-pill">Admin</span>{% endif %}
+            </div>
+          </td>
+          <td>
+            <div class="action-btns">
+              {% if not u.is_admin %}
+                <!-- REMOVE COMMENT BELOW TO ENABLE ADMIN SWITCHING -->
+                <!-- <button class="btn-icon promote" onclick="openPromote('{{ u.username }}')">Make admin</button> -->
+                <button class="btn-icon danger"  onclick="openDelete('{{ u.username }}')">Remove</button>
+              {% else %}
+                <span style="font-size:12px;color:var(--muted)">Current admin</span>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="2" class="empty-users">No users yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Add user -->
+  <div class="card">
+    <div class="card-title"><span class="dot"></span>Add new user</div>
+    <div class="form-grid">
+      <div class="field">
+        <label for="new-username">Username</label>
+        <input type="text" id="new-username" placeholder="e.g. alice" autocomplete="off" maxlength="32"/>
+      </div>
+      <div class="field">
+        <label for="new-password">Password</label>
+        <input type="password" id="new-password" placeholder="Min. 10 characters" autocomplete="new-password"/>
+      </div>
+    </div>
+    <div class="checkbox-row" style="margin-top:14px">
+      <input type="checkbox" id="make-admin"/>
+      <label for="make-admin">Transfer admin role to this user</label>
+    </div> 
+    <div class="form-footer">
+      <span class="form-error" id="add-error"></span>
+      <button class="btn-primary" id="add-btn" onclick="addUser()">Add user</button>
+    </div>
+  </div>
+
+  <!-- Update NUKE command -->
+  <div class="card">
+    <div class="card-title"><span class="dot"></span>NUKE command</div>
+    <p style="font-size:14px;color:var(--muted);margin-bottom:14px;line-height:1.6">
+      Customize the command users type to wipe all messages and files. Default is <code style="background:#1f1f1f;padding:2px 6px;border-radius:4px;font-size:12px">/NUKE</code>.
+    </p>
+    <div class="field" style="max-width:300px">
+      <label for="nuke-cmd-input">Command (uppercase, starts with /)</label>
+      <input type="text" id="nuke-cmd-input" placeholder="e.g. /PURGE" value="{{ nuke_cmd }}" maxlength="20" style="text-transform:uppercase"/>
+    </div>
+    <div class="form-footer" style="margin-top:14px">
+      <span class="form-error" id="nuke-error"></span>
+      <button class="btn-primary" id="nuke-btn" onclick="updateNukeCommand()">Update command</button>
+    </div>
+  </div>
+
+  <!-- Force logout -->
+  <div class="card" style="border-color:rgba(232,93,117,0.2);background:rgba(232,93,117,0.04)">
+    <div class="card-title"><span class="dot" style="background:var(--danger)"></span>Session security</div>
+    <p style="font-size:14px;color:var(--muted);margin-bottom:18px;line-height:1.6">
+      Immediately logs out every user and rotates <code style="background:#1f1f1f;padding:2px 6px;border-radius:4px;font-size:12px">SECRET_KEY</code>.
+      Use if you suspect a session has been compromised.
+    </p>
+    <button class="btn-primary" style="background:var(--danger)" onclick="openForceLogout()">Log out everyone &amp; rotate key</button>
+  </div>
+</main>
+
+<!-- Delete modal -->
+<div class="modal-overlay" id="del-modal">
+  <div class="modal">
+    <div class="modal-title">Remove user?</div>
+    <div class="modal-sub">
+      Removing <strong id="del-label"></strong> will delete their account and key bundle.
+      Their messages remain in the chat but will show as encrypted to others.
+    </div>
+    <div class="modal-btns">
+      <button class="modal-cancel" onclick="closeModal('del-modal')">Cancel</button>
+      <button class="modal-confirm" onclick="confirmDelete()">Remove</button>
+    </div>
+  </div>
+</div>
+
+<!-- Promote modal -->
+<div class="modal-overlay" id="promo-modal">
+  <div class="modal">
+    <div class="modal-title">Transfer admin role?</div>
+    <div class="modal-sub"><strong id="promo-label"></strong> will become admin. You will lose admin access immediately.</div>
+    <div class="modal-btns">
+      <button class="modal-cancel" onclick="closeModal('promo-modal')">Cancel</button>
+      <button class="modal-confirm accent" onclick="confirmPromote()">Transfer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Force logout modal -->
+<div class="modal-overlay" id="fl-modal">
+  <div class="modal">
+    <div class="modal-title" style="color:var(--danger)">Log out everyone?</div>
+    <div class="modal-sub">All active sessions will be invalidated and <code style="background:#1f1f1f;padding:2px 5px;border-radius:4px;font-size:12px">SECRET_KEY</code> will be rotated. You will be redirected to login.</div>
+    <div class="modal-btns">
+      <button class="modal-cancel" onclick="closeModal('fl-modal')">Cancel</button>
+      <button class="modal-confirm" onclick="confirmForceLogout()">Log out everyone</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script type="module">
+  import { deriveSessionKeys, wrapGroupKey } from '/static/crypto.js';
+
+  let pending = null;
+
+  function showToast(msg, type = "success") {
+    const t = document.getElementById("toast");
+    t.textContent = msg;
+    t.className = "show " + type;
+    clearTimeout(t._t);
+    t._t = setTimeout(() => t.className = "", 3000);
+  }
+
+  window.closeModal = function(id) {
+    document.getElementById(id).classList.remove("show");
+    pending = null;
+  };
+
+  document.querySelectorAll(".modal-overlay").forEach(el => {
+    el.addEventListener("click", e => { if (e.target === el) window.closeModal(el.id); });
+  });
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape") ["del-modal","promo-modal","fl-modal"].forEach(id => window.closeModal(id));
+  });
+
+  // ── Add user: derives auth token + pushes group key for new user ────────────
+  window.addUser = async function() {
+    const username  = document.getElementById("new-username").value.trim();
+    const password  = document.getElementById("new-password").value.trim();
+    const makeAdmin = document.getElementById("make-admin").checked;
+    const errEl     = document.getElementById("add-error");
+    const btn       = document.getElementById("add-btn");
+    errEl.textContent = "";
+
+    if (!username || !password) { errEl.textContent = "Both fields required."; return; }
+    if (password.length < 10)   { errEl.textContent = "Password must be at least 10 characters."; return; }
+
+    btn.disabled = true;
+    btn.textContent = "Deriving keys…";
+
+    try {
+      // 1. Derive auth token and wrap key for new user (from their new password)
+      const { wrapKey: newUserWrapKey, authToken } = await deriveSessionKeys(password, username);
+
+      // 2. Fetch admin's own group key bundle and unwrap it to get the raw group key
+      btn.textContent = "Loading group key…";
+      const adminBundleRes  = await fetch("/groupkey");
+      const adminBundleData = await adminBundleRes.json();
+
+      if (!adminBundleData.bundle) {
+        errEl.textContent = "Admin has no group key bundle — log out and back in first.";
+        return;
+      }
+
+      // We need the admin's wrapKey in memory. We store groupKey_raw in
+      // sessionStorage so we can import it directly without needing the admin's password again.
+      const groupKeyRaw = sessionStorage.getItem("groupKey_raw");
+      if (!groupKeyRaw) {
+        errEl.textContent = "Session key not found — please sign out and sign back in.";
+        return;
+      }
+
+      // Import the raw group key
+      const rawBytes = Uint8Array.from(atob(groupKeyRaw), c => c.charCodeAt(0));
+      const groupKey = await crypto.subtle.importKey(
+        "raw", rawBytes, { name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]
+      );
+
+      // 3. Re-wrap the group key with the new user's wrap key
+      btn.textContent = "Wrapping group key for new user…";
+      const newUserBundle = await wrapGroupKey(groupKey, newUserWrapKey);
+
+      // 4. Create the user account
+      btn.textContent = "Adding…";
+      const res  = await fetch("/admin/add-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, auth_token: authToken, make_admin: makeAdmin }),
+      });
+      const data = await res.json();
+      if (data.error) { errEl.textContent = data.error; return; }
+
+      // 5. Push the wrapped group key to the server for the new user
+      btn.textContent = "Pushing group key…";
+      await fetch(`/groupkey/${username}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bundle: newUserBundle }),
+      });
+
+      const tbody   = document.getElementById("user-tbody");
+      const emptyRow = tbody.querySelector("td[colspan]")?.closest("tr");
+      if (emptyRow) emptyRow.remove();
+
+      const tr = document.createElement("tr");
+      tr.className = "user-row";
+      tr.dataset.username = data.username;
+      tr.innerHTML = `
+        <td>
+          <div class="username-cell">
+            ${esc(data.username)}
+            ${data.is_admin ? '<span class="admin-pill">⚡ Admin</span>' : ""}
+          </div>
+        </td>
+        <td>
+          <div class="action-btns">
+            ${!data.is_admin ? `
+              <button class="btn-icon promote" onclick="openPromote('${esc(data.username)}')">Make admin</button>
+              <button class="btn-icon danger"  onclick="openDelete('${esc(data.username)}')">Remove</button>
+            ` : '<span style="font-size:12px;color:var(--muted)">Current admin</span>'}
+          </div>
+        </td>`;
+      tbody.appendChild(tr);
+
+      document.getElementById("new-username").value = "";
+      document.getElementById("new-password").value = "";
+      document.getElementById("make-admin").checked  = false;
+      showToast(`User "${data.username}" added.`);
+
+      if (makeAdmin) {
+        showToast(`Admin role transferred to "${data.username}". Redirecting…`);
+        setTimeout(() => location.href = "/", 1800);
+      }
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Add user";
+    }
+  };
+
+  // ── Delete ────────────────────────────────────────────────────────────────
+  window.openDelete = function(username) {
+    pending = username;
+    document.getElementById("del-label").textContent = username;
+    document.getElementById("del-modal").classList.add("show");
+  };
+
+  window.confirmDelete = async function() {
+    const res  = await fetch("/admin/delete-user", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: pending }),
+    });
+    const data = await res.json();
+    if (data.error) { showToast(data.error, "error"); window.closeModal("del-modal"); return; }
+    document.querySelector(`.user-row[data-username="${pending}"]`)?.remove();
+    if (!document.querySelector(".user-row")) {
+      document.getElementById("user-tbody").innerHTML = `<tr><td colspan="2" class="empty-users">No users yet.</td></tr>`;
+    }
+    window.closeModal("del-modal");
+    showToast(`User "${pending}" removed.`);
+  };
+
+  // ── Promote ───────────────────────────────────────────────────────────────
+  window.openPromote = function(username) {
+    pending = username;
+    document.getElementById("promo-label").textContent = username;
+    document.getElementById("promo-modal").classList.add("show");
+  };
+
+  window.confirmPromote = async function() {
+    const res  = await fetch("/admin/set-admin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: pending }),
+    });
+    const data = await res.json();
+    window.closeModal("promo-modal");
+    if (data.error) { showToast(data.error, "error"); return; }
+    showToast(`"${pending}" is now admin. Redirecting…`);
+    setTimeout(() => location.href = "/", 1800);
+  };
+
+  // ── Update NUKE command ───────────────────────────────────────────────────
+  window.updateNukeCommand = async function() {
+    const input = document.getElementById("nuke-cmd-input");
+    const errEl = document.getElementById("nuke-error");
+    const btn   = document.getElementById("nuke-btn");
+    let command = input.value.trim().toUpperCase();
+    
+    errEl.textContent = "";
+
+    if (!command) {
+      errEl.textContent = "Command cannot be empty.";
+      return;
+    }
+
+    if (!command.startsWith("/")) {
+      command = "/" + command;
+    }
+
+    if (!/^\/[A-Z0-9_]+$/.test(command)) {
+      errEl.textContent = "Only uppercase letters, numbers, and underscores allowed.";
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = "Updating…";
+
+    try {
+      const res = await fetch("/admin/update-nuke-command", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command }),
+      });
+      const data = await res.json();
+
+      if (data.error) {
+        errEl.textContent = data.error;
+        return;
+      }
+
+      input.value = data.new_command;
+      showToast(`NUKE command updated to "${data.new_command}"`);
+    } catch (err) {
+      errEl.textContent = "Failed to update command.";
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Update command";
+    }
+  };
+
+  // ── Force logout ──────────────────────────────────────────────────────────
+  window.openForceLogout = function() {
+    document.getElementById("fl-modal").classList.add("show");
+  };
+
+  window.confirmForceLogout = async function() {
+    window.closeModal("fl-modal");
+    const res  = await fetch("/admin/force-logout", { method: "POST" });
+    const data = await res.json();
+    if (data.error) { showToast(data.error, "error"); return; }
+    showToast("All sessions ended. Redirecting…");
+    setTimeout(() => location.href = "/login", 1500);
+  };
+
+  function esc(str) {
+    return str.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+
+  document.getElementById("new-password").addEventListener("keydown", e => {
+    if (e.key === "Enter") window.addUser();
+  });
+
+  document.getElementById("nuke-cmd-input").addEventListener("keydown", e => {
+    if (e.key === "Enter") window.updateNukeCommand();
+  });
+</script>
+</body>
+</html>

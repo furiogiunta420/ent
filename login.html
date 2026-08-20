@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ENTROPy — Sign in</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f0f0f; --surface: #1a1a1a; --border: #2a2a2a;
+      --accent: #a214a7; --danger: #e85d75; --text: #f0f0f0; --muted: #666;
+    }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    }
+
+    body::before, body::after {
+      content: '';
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(90px);
+      opacity: 0.13;
+      animation: drift 12s ease-in-out infinite alternate;
+    }
+    body::before { width: 500px; height: 500px; background: #a214a7; top: -120px; left: -120px; }
+    body::after  { width: 400px; height: 400px; background: #aa17af; bottom: -100px; right: -100px; animation-delay: -6s; }
+
+
+
+
+
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 20px; padding: 44px 40px; width: 100%; max-width: 400px;
+    }
+    .logo {
+      font-family: 'Syne', sans-serif; font-size: 26px; font-weight: 800;
+      margin-bottom: 6px;
+    }
+    .logo span { color: var(--accent); }
+    .tagline { color: var(--muted); font-size: 13px; margin-bottom: 32px; line-height: 1.5; }
+    .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+    .field label { font-size: 12px; color: var(--muted); font-weight: 500; }
+    .field input {
+      background: #111; border: 1px solid var(--border); border-radius: 10px;
+      padding: 12px 14px; color: var(--text); font-size: 15px;
+      font-family: 'DM Sans', sans-serif; outline: none; transition: border-color 0.2s;
+    }
+    .field input:focus { border-color: var(--accent); }
+    .field input::placeholder { color: #444; }
+    .btn {
+      width: 100%; background: var(--accent); border: none; border-radius: 10px;
+      padding: 13px; font-size: 15px; font-weight: 500; color: #fff;
+      font-family: 'DM Sans', sans-serif; cursor: pointer;
+      transition: background 0.2s; margin-top: 8px;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .btn:hover:not(:disabled) { background: #aa17af; }
+    .btn:disabled { opacity: 0.6; cursor: default; }
+    .error {
+      background: rgba(232,93,117,0.1); border: 1px solid rgba(232,93,117,0.3);
+      border-radius: 8px; padding: 10px 14px; font-size: 13px; color: var(--danger);
+      margin-top: 14px; display: none;
+    }
+    .deriving {
+      font-size: 12px; color: var(--muted); text-align: center;
+      margin-top: 10px; min-height: 18px;
+    }
+    .e2e-note {
+      margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border);
+      font-size: 12px; color: var(--muted); line-height: 1.6; text-align: center;
+    }
+    .e2e-note strong { color: #888; }
+    /* Spinner */
+    .spin {
+      width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff; border-radius: 50%;
+      animation: spin 0.7s linear infinite; display: none;
+    }
+    .btn.loading .spin { display: block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">ENTROP<span>y</span></div>
+  <div class="tagline">Your password never leaves this device.<br>Keys are derived locally before sign-in.</div>
+
+  <div class="field">
+    <label for="username">Username</label>
+    <input type="text" id="username" placeholder="Enter username" autocomplete="username" autocapitalize="none"/>
+  </div>
+  <div class="field">
+    <label for="password">Password</label>
+    <input type="password" id="password" placeholder="Enter password" autocomplete="current-password"/>
+  </div>
+
+  <button class="btn" id="login-btn" onclick="doLogin()">
+    <span class="spin"></span>
+    <span id="btn-label">Sign in</span>
+  </button>
+
+  <div class="deriving" id="deriving-status"></div>
+  <div class="error" id="error-box"></div>
+
+  <div class="e2e-note">
+    <strong>End-to-end encrypted.</strong>
+  </div>
+</div>
+
+<script>
+  window.addEventListener('error', e => {
+    if (e.filename && e.filename.includes('crypto.js')) {
+      document.getElementById('error-box').textContent = 'Failed to load crypto module — check /static/crypto.js is accessible.';
+      document.getElementById('error-box').style.display = 'block';
+    }
+  }, true);
+</script>
+<script type="module">
+  import {
+    deriveSessionKeys, deriveWrapKey,
+    generateGroupKey, wrapGroupKey, unwrapGroupKey,
+    exportGroupKey, importGroupKey, b64encode
+  } from '/static/crypto.js';
+
+  function showError(msg) {
+    const e = document.getElementById("error-box");
+    e.textContent = msg;
+    e.style.display = "block";
+    document.getElementById("deriving-status").textContent = "";
+    document.getElementById("login-btn").classList.remove("loading");
+    document.getElementById("login-btn").disabled = false;
+    document.getElementById("btn-label").textContent = "Sign in";
+  }
+
+  function storeGroupKey(groupKey) {
+    // Store raw group key bytes in sessionStorage for this tab's lifetime
+    return crypto.subtle.exportKey("raw", groupKey).then(raw => {
+      sessionStorage.setItem("groupKey_raw", b64encode(raw));
+    });
+  }
+
+  window.doLogin = async function() {
+    const username = document.getElementById("username").value.trim();
+    const password = document.getElementById("password").value;
+    const btn      = document.getElementById("login-btn");
+    const status   = document.getElementById("deriving-status");
+
+    document.getElementById("error-box").style.display = "none";
+    if (!username || !password) { showError("Please enter your username and password."); return; }
+
+    btn.classList.add("loading");
+    btn.disabled = true;
+    document.getElementById("btn-label").textContent = "Deriving keys…";
+    status.textContent = "Running PBKDF2 — this takes a moment…";
+
+    try {
+      // 1. Derive WRAP_KEY (stays local) and AUTH_TOKEN (sent to server)
+      const { wrapKey, authToken } = await deriveSessionKeys(password, username);
+      status.textContent = "Authenticating…";
+
+      // 2. Send only the auth token — never the password
+      const res  = await fetch("/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, auth_token: authToken }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) { showError(data.error || "Invalid username or password."); return; }
+
+      status.textContent = "Loading group key…";
+
+      // 3. Try to fetch this user's wrapped group key bundle
+      const bundleRes  = await fetch("/groupkey");
+      const bundleData = await bundleRes.json();
+
+      if (bundleData.bundle) {
+        try {
+          const groupKey = await unwrapGroupKey(bundleData.bundle, wrapKey);
+          await storeGroupKey(groupKey);
+        } catch {
+          showError("Failed to unwrap group key. Contact your admin.");
+          return;
+        }
+      } else {
+
+        status.textContent = "No group key found — checking if first user…";
+
+
+        const adminCheckRes = await fetch("/whoami");
+        const whoami        = await adminCheckRes.json();
+
+        if (whoami.is_first_user || whoami.is_admin) {
+          status.textContent = "Generating group key…";
+          const groupKey = await generateGroupKey();
+          const wrapped  = await wrapGroupKey(groupKey, wrapKey);
+          await fetch("/groupkey", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ bundle: wrapped }),
+          });
+          await storeGroupKey(groupKey);
+        } else {
+          showError("Your account is ready but the admin needs to share the group key with you. Ask the admin to log in first, then try again.");
+          return;
+        }
+      }
+
+      status.textContent = "Done.";
+      window.location.href = "/";
+
+    } catch(e) {
+      showError("Error: " + e.message);
+    } finally {
+      btn.classList.remove("loading");
+      btn.disabled = false;
+      document.getElementById("btn-label").textContent = "Sign in";
+    }
+  };
+
+  document.getElementById("password").addEventListener("keydown", e => { if (e.key === "Enter") window.doLogin(); });
+  document.getElementById("username").addEventListener("keydown", e => { if (e.key === "Enter") document.getElementById("password").focus(); });
+</script>
+</body>
+</html>
