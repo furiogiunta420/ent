@@ -182,7 +182,7 @@
   </div>
 </main>
 
-<!-- Delete modal -->
+<!-- Delete box-->
 <div class="modal-overlay" id="del-modal">
   <div class="modal">
     <div class="modal-title">Remove user?</div>
@@ -197,7 +197,7 @@
   </div>
 </div>
 
-<!-- Promote modal -->
+<!-- Promote box -->
 <div class="modal-overlay" id="promo-modal">
   <div class="modal">
     <div class="modal-title">Transfer admin role?</div>
@@ -209,7 +209,7 @@
   </div>
 </div>
 
-<!-- Force logout modal -->
+<!-- Force logout box -->
 <div class="modal-overlay" id="fl-modal">
   <div class="modal">
     <div class="modal-title" style="color:var(--danger)">Log out everyone?</div>
@@ -248,7 +248,7 @@
     if (e.key === "Escape") ["del-modal","promo-modal","fl-modal"].forEach(id => window.closeModal(id));
   });
 
-  // ── Add user: derives auth token + pushes group key for new user ────────────
+  // ── Add user ────────────
   window.addUser = async function() {
     const username  = document.getElementById("new-username").value.trim();
     const password  = document.getElementById("new-password").value.trim();
@@ -264,10 +264,10 @@
     btn.textContent = "Deriving keys…";
 
     try {
-      // 1. Derive auth token and wrap key for new user (from their new password)
+      // 1. Derive auth token and wrap key for new user 
       const { wrapKey: newUserWrapKey, authToken } = await deriveSessionKeys(password, username);
 
-      // 2. Fetch admin's own group key bundle and unwrap it to get the raw group key
+      // 2. Fetch admin's group key 
       btn.textContent = "Loading group key…";
       const adminBundleRes  = await fetch("/groupkey");
       const adminBundleData = await adminBundleRes.json();
@@ -277,8 +277,6 @@
         return;
       }
 
-      // We need the admin's wrapKey in memory. We store groupKey_raw in
-      // sessionStorage so we can import it directly without needing the admin's password again.
       const groupKeyRaw = sessionStorage.getItem("groupKey_raw");
       if (!groupKeyRaw) {
         errEl.textContent = "Session key not found — please sign out and sign back in.";
@@ -305,7 +303,7 @@
       const data = await res.json();
       if (data.error) { errEl.textContent = data.error; return; }
 
-      // 5. Push the wrapped group key to the server for the new user
+      // 5. Push the wrapped group key to the server 
       btn.textContent = "Pushing group key…";
       await fetch(`/groupkey/${username}`, {
         method: "POST",
