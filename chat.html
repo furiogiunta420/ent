@@ -185,6 +185,498 @@
 
   // ── State ─────────────────────────────────────────────────────────────────
   let lastCount   = 0;
+  const blobCache = {};
+
+  function esc(str) {
+    if (!str) return "";
+    return str.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+
+  function fileIcon(name) {
+    const ext = (name || "").split('.').pop().toLowerCase();
+    if (["png","jpg","jpeg","gif","webp"].includes(ext)) return "🖼️";
+    if (ext === "pdf")  return "📄";
+    if (ext === "zip")  return "📦";
+    if (["mp4","mov"].includes(ext)) return "🎬";
+    return "📎";
+  }
+
+  // ── Render a single message bubble ───────────────────────────────────────
+  function buildBubble(msg, plaintextOrNull, blobUrl) {
+    const isOwn = msg.username === ME;
+    const side  = isOwn ? "own" : "other";
+
+    let bodyHtml = "";
+
+    if (msg.file_name) {
+      if (blobUrl) {
+        const isImage = ["png","jpg","jpeg","gif","webp"].includes(
+          (msg.file_orig || "").split('.').pop().toLowerCase()
+        );
+        if (isImage) {
+          bodyHtml = `<img src="${blobUrl}" alt="${esc(msg.file_orig)}" loading="lazy" onclick="openLightbox('${blobUrl}')"/>`;
+        } else {
+          bodyHtml = `
+            <div class="file-attach" onclick="downloadBlob('${esc(msg.file_name)}','${esc(msg.file_orig)}')">
+              <span class="file-icon">${fileIcon(msg.file_orig)}</span>
+              <div>
+                <div class="file-name">${esc(msg.file_orig)}</div>
+                <div class="file-dl">Click to download</div>
+              </div>
+            </div>`;
+        }
+      } else {
+        bodyHtml = `<span style="color:var(--muted);font-size:13px;font-style:italic">Decrypting file…</span>`;
+      }
+    } else if (plaintextOrNull !== null) {
+      bodyHtml = esc(plaintextOrNull);
+    } else {
+      bodyHtml = `<span style="color:var(--muted);font-size:13px;font-style:italic">Decrypting…</span>`;
+    }
+
+    return `
+      <div class="msg-wrapper ${side}" data-id="${msg.id}" data-file="${esc(msg.file_name || '')}">
+        <div class="msg-meta">
+          <span class="sender">${esc(msg.username)}</span>
+          <span>${esc(msg.timestamp)}</span>
+        </div>
+        <div class="bubble">${bodyHtml}</div>
+      </div>`;
+  }
+
+  // ── Load + decrypt messages ───────────────────────────────────────────────
+  async function loadMessages() {
+    const res  = await fetch("/messages");
+    const msgs = await res.json();
+    const box  = document.getElementById("messages");
+
+    if (msgs.length === 0) {
+      box.innerHTML = `<div class="empty-state" id="empty"><div class="icon">💬</div><p>No messages yet. Say hello!</p></div>`;
+      lastCount = 0;
+      return;
+    }
+
+    if (msgs.length === lastCount) return;
+
+    const empty = document.getElementById("empty");
+    if (empty) empty.remove();
+
+    // Only process new messages
+    const existingIds = new Set(
+      [...box.querySelectorAll(".msg-wrapper")].map(el => parseInt(el.dataset.id))
+    );
+
+    for (const msg of msgs) {
+      if (existingIds.has(msg.id)) continue;
+
+      // Insert placeholder first
+      const placeholder = document.createElement("div");
+      placeholder.innerHTML = buildBubble(msg, null, null);
+      box.appendChild(placeholder.firstElementChild);
+
+      // Decrypt asynchronously
+      if (!GROUP_KEY) continue;
+
+      if (msg.ciphertext) {
+        decryptText(GROUP_KEY, msg.ciphertext)
+          .then(plain => {
+            const el = box.querySelector(`.msg-wrapper[data-id="${msg.id}"] .bubble`);
+            if (el) el.innerHTML = esc(plain);
+          })
+          .catch(() => {
+            const el = box.querySelector(`.msg-wrapper[data-id="${msg.id}"] .bubble`);
+            if (el) el.innerHTML = `<span style="color:var(--danger);font-size:13px">Failed to decrypt</span>`;
+          });
+      } else if (msg.file_name) {
+        decryptFileMessage(msg, box);
+      }
+    }
+
+    lastCount = msgs.length;
+    box.scrollTop = box.scrollHeight;
+  }
+
+  async function decryptFileMessage(msg, box) {
+    if (blobCache[msg.file_name]) {
+      const el = box.querySelector(`.msg-wrapper[data-id="${msg.id}"] .bubble`);
+      if (el) el.innerHTML = buildFileBubbleContent(msg, blobCache[msg.file_name]);
+      return;
+    }
+    try {
+      const res  = await fetch(`/uploads/${msg.file_name}`);
+      const data = await res.json();
+      const blob = await decryptFile(GROUP_KEY, data.ciphertext, msg.file_mime || "application/octet-stream");
+      const url  = URL.createObjectURL(blob);
+      blobCache[msg.file_name] = { url, orig: msg.file_orig, mime: msg.file_mime };
+
+      const el = box.querySelector(`.msg-wrapper[data-id="${msg.id}"] .bubble`);
+      if (el) el.innerHTML = buildFileBubbleContent(msg, blobCache[msg.file_name]);
+    } catch {
+      const el = box.querySelector(`.msg-wrapper[data-id="${msg.id}"] .bubble`);
+      if (el) el.innerHTML = `<span style="color:var(--danger);font-size:13px">Failed to decrypt file</span>`;
+    }
+  }
+
+  function buildFileBubbleContent(msg, cached) {
+    const isImage = ["png","jpg","jpeg","gif","webp"].includes(
+      (msg.file_orig || "").split('.').pop().toLowerCase()
+    );
+    if (isImage) {
+      return `<img src="${cached.url}" alt="${esc(msg.file_orig)}" loading="lazy" onclick="openLightbox('${cached.url}')"/>`;
+    }
+    return `
+      <div class="file-attach" onclick="downloadBlob('${esc(msg.file_name)}','${esc(msg.file_orig)}')">
+        <span class="file-icon">${fileIcon(msg.file_orig)}</span>
+        <div>
+          <div class="file-name">${esc(msg.file_orig)}</div>
+          <div class="file-dl">Click to download</div>
+        </div>
+      </div>`;
+  }
+
+  window.downloadBlob = function(fileName, origName) {
+    const cached = blobCache[fileName];
+    if (!cached) return;
+    const a = document.createElement("a");
+    a.href = cached.url;
+    a.download = origName;
+    a.click();
+  };
+
+  // ── Send message ──────────────────────────────────────────────────────────
+  window.sendMessage = async function() {
+    const input   = document.getElementById("msg-input");
+    const content = input.value.trim();
+    if (!content) return;
+
+    if (IS_ADMIN && content === NUKE_CMD) {
+      input.value = "";
+      input.style.height = "auto";
+      document.getElementById("nuke-overlay").classList.add("show");
+      return;
+    }
+
+    if (!GROUP_KEY) { alert("No encryption key — please sign out and sign back in."); return; }
+
+    input.value = "";
+    input.style.height = "auto";
+
+    const ciphertext = await encryptText(GROUP_KEY, content);
+    const res  = await fetch("/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ciphertext }),
+    });
+    const data = await res.json();
+    if (data.error) { alert(data.error); return; }
+
+    // Append optimistically — decrypt immediately since we know the plaintext
+    const box = document.getElementById("messages");
+    const empty = document.getElementById("empty");
+    if (empty) empty.remove();
+    const el = document.createElement("div");
+    el.innerHTML = buildBubble(data, content, null);
+    box.appendChild(el.firstElementChild);
+    lastCount++;
+    box.scrollTop = box.scrollHeight;
+  };
+
+  // ── Nuke ──────────────────────────────────────────────────────────────────
+  window.closeNuke = function() {
+    document.getElementById("nuke-overlay").classList.remove("show");
+  };
+
+  window.confirmNuke = async function() {
+    closeNuke();
+    closeLightbox();
+    // Clear UI immediately
+    document.getElementById("messages").innerHTML =
+      `<div class="empty-state" id="empty"><div class="icon">💬</div><p>No messages yet. Say hello!</p></div>`;
+    lastCount = 0;
+
+    const res  = await fetch("/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nuke: true }),
+    });
+    const data = await res.json();
+    if (!data.nuked) {
+      alert("Nuke failed: " + (data.error || "unknown"));
+      await loadMessages();
+    }
+  };
+
+  // ── File upload ───────────────────────────────────────────────────────────
+  document.getElementById("file-input").addEventListener("change", async function() {
+    const file = this.files[0];
+    if (!file || !GROUP_KEY) { if (!GROUP_KEY) alert("No key — sign out and back in."); return; }
+
+    if (file.size > MAX_UPLOAD_BYTES) {
+      alert(`"${file.name}" is ${(file.size / (1024 * 1024)).toFixed(1)} MB — the max attachment size is ${MAX_UPLOAD_LABEL}.`);
+      this.value = "";
+      return;
+    }
+
+    const bar  = document.getElementById("upload-bar");
+    const fill = document.getElementById("upload-fill");
+    bar.classList.add("show");
+    fill.style.width = "20%";
+
+    try {
+      fill.style.width = "50%";
+      const { b64, mimeType, originalName } = await encryptFile(GROUP_KEY, file);
+      fill.style.width = "80%";
+
+      const res  = await fetch("/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ciphertext: b64, original_name: originalName, mime_type: mimeType }),
+      });
+      fill.style.width = "100%";
+
+      if (!res.ok) {
+        const msg = res.status === 413
+          ? `Upload rejected by the server — file too large (max ${MAX_UPLOAD_LABEL}).`
+          : `Upload failed (HTTP ${res.status}).`;
+        alert(msg);
+        return;
+      }
+
+      const data = await res.json();
+      if (data.error) { alert(data.error); return; }
+
+      // Append the decrypted blob immediately
+      const blob = await decryptFile(GROUP_KEY, b64, mimeType);
+      const url  = URL.createObjectURL(blob);
+      blobCache[data.file_name] = { url, orig: originalName, mime: mimeType };
+
+      const box   = document.getElementById("messages");
+      const empty = document.getElementById("empty");
+      if (empty) empty.remove();
+      const el = document.createElement("div");
+      el.innerHTML = buildBubble(data, null, url);
+      box.appendChild(el.firstElementChild);
+      lastCount++;
+      box.scrollTop = box.scrollHeight;
+    } catch(e) {
+      alert("Upload failed: " + e.message);
+    }
+
+    setTimeout(() => { bar.classList.remove("show"); fill.style.width = "0%"; }, 600);
+    this.value = "";
+  });
+
+  // ── Lightbox ──────────────────────────────────────────────────────────────
+  window.openLightbox = function(src) {
+    document.getElementById("lightbox-img").src = src;
+    document.getElementById("lightbox").classList.add("show");
+  };
+  window.closeLightbox = function() {
+    document.getElementById("lightbox").classList.remove("show");
+    document.getElementById("lightbox-img").src = "";
+  };
+
+  // ── Textarea ──────────────────────────────────────────────────────────────
+  const input = document.getElementById("msg-input");
+  input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = input.scrollHeight + "px"; });
+  input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); window.sendMessage(); } });
+  document.getElementById("send-btn").addEventListener("click", () => window.sendMessage());
+  document.getElementById("nuke-overlay").addEventListener("click", e => { if (e.target === document.getElementById("nuke-overlay")) window.closeNuke(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") { window.closeLightbox(); window.closeNuke(); } });
+
+  // ── Boot ──────────────────────────────────────────────────────────────────
+  await loadGroupKey();
+  await loadMessages();
+  setInterval(loadMessages, 3000);
+</script>
+</body>
+</html><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ENTROPy</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f0f0f; --surface: #1a1a1a; --surface2: #222; --border: #2a2a2a;
+      --accent: #a214a7; --danger: #e85d75; --text: #f0f0f0; --muted: #666;
+      --own-bg: #521e52; --own-border: #9a3a8a;
+    }
+    html, body { height: 100%; }
+    body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+
+
+
+
+    header { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; gap: 12px; }
+    .logo { font-family: 'Syne', sans-serif; font-size: 20px; font-weight: 800; white-space: nowrap; }
+    .logo span { color: var(--accent); }
+    .header-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+    .you-badge { background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; padding: 5px 12px; font-size: 13px; color: #aaa; white-space: nowrap; }
+    .you-badge strong { color: #aa17af; }
+    .admin-badge { background: #222; border: 1px solid #a214a7; color: #aa17af; border-radius: 20px; padding: 5px 12px; font-size: 12px; font-weight: 500; white-space: nowrap; text-decoration: none; cursor: pointer; }
+    .e2e-badge { background: #222; border: 1px solid #a214a7; color: #aa17af; border-radius: 20px; padding: 5px 12px; font-size: 11px; white-space: nowrap; }
+    .logout-btn { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 8px; padding: 6px 12px; font-size: 13px; font-family: 'DM Sans', sans-serif; cursor: pointer; transition: color 0.2s, border-color 0.2s; white-space: nowrap; }
+    .logout-btn:hover { color: var(--danger); border-color: var(--danger); }
+
+    #messages { flex: 1; overflow-y: auto; padding: 20px 24px 12px; display: flex; flex-direction: column; gap: 10px; scroll-behavior: smooth; }
+    #messages::-webkit-scrollbar { width: 5px; }
+    #messages::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
+
+    .msg-wrapper { display: flex; flex-direction: column; max-width: 72%; animation: pop-in 0.22s cubic-bezier(.22,1,.36,1) both; }
+    @keyframes pop-in { from { opacity: 0; transform: translateY(8px) scale(0.97); } to { opacity: 1; transform: none; } }
+    .msg-wrapper.own   { align-self: flex-end;  align-items: flex-end; }
+    .msg-wrapper.other { align-self: flex-start; align-items: flex-start; }
+
+    .msg-meta { font-size: 11px; color: var(--muted); margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+    .msg-meta .sender { font-weight: 500; color: #aaa; }
+    .msg-wrapper.own .msg-meta .sender { color: #a214a7; }
+
+    .bubble { padding: 11px 15px; border-radius: 16px; font-size: 15px; line-height: 1.5; word-break: break-word; }
+    .msg-wrapper.other .bubble { background: var(--surface2); border: 1px solid var(--border); border-top-left-radius: 4px; }
+    .msg-wrapper.own   .bubble { background: var(--own-bg);   border: 1px solid var(--own-border); border-top-right-radius: 4px; }
+    .bubble.decrypting { opacity: 0.4; font-style: italic; font-size: 13px; }
+
+    .bubble img { max-width: 280px; max-height: 280px; border-radius: 10px; display: block; cursor: pointer; transition: opacity 0.2s; }
+    .bubble img:hover { opacity: 0.85; }
+
+    .file-attach { display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; text-decoration: none; color: var(--text); transition: background 0.2s; cursor: pointer; }
+    .file-attach:hover { background: rgba(255,255,255,0.09); }
+    .file-icon { font-size: 22px; }
+    .file-name { font-size: 13px; word-break: break-all; }
+    .file-dl { font-size: 11px; color: var(--accent); margin-top: 2px; }
+
+    .empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--muted); gap: 8px; }
+    .empty-state .icon { font-size: 40px; }
+    .empty-state p { font-size: 14px; }
+
+    /* Nuke overlay */
+    #nuke-overlay { display: none; position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,0.85); align-items: center; justify-content: center; }
+    #nuke-overlay.show { display: flex; }
+    .nuke-box { background: #1a0a0c; border: 1px solid rgba(232,93,117,0.4); border-radius: 20px; padding: 40px 36px; max-width: 380px; width: 90%; text-align: center; box-shadow: 0 0 60px rgba(232,93,117,0.15); animation: shake 0.4s cubic-bezier(.36,.07,.19,.97); }
+    @keyframes shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-8px)} 40%{transform:translateX(8px)} 60%{transform:translateX(-5px)} 80%{transform:translateX(5px)} }
+    .nuke-icon { font-size: 52px; margin-bottom: 12px; }
+    .nuke-title { font-family: 'Syne', sans-serif; font-size: 22px; font-weight: 800; color: var(--danger); margin-bottom: 8px; }
+    .nuke-sub { color: #888; font-size: 14px; margin-bottom: 28px; line-height: 1.5; }
+    .nuke-btns { display: flex; gap: 12px; }
+    .nuke-cancel { flex: 1; background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 10px; padding: 12px; font-size: 14px; font-family: 'DM Sans', sans-serif; cursor: pointer; }
+    .nuke-cancel:hover { color: var(--text); }
+    .nuke-confirm { flex: 1; background: var(--danger); border: none; color: #fff; border-radius: 10px; padding: 12px; font-size: 14px; font-weight: 500; font-family: 'DM Sans', sans-serif; cursor: pointer; }
+    .nuke-confirm:hover { background: #c94060; }
+
+    /* Lightbox */
+    #lightbox { display: none; position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,0.92); align-items: center; justify-content: center; cursor: zoom-out; }
+    #lightbox.show { display: flex; }
+    #lightbox img { max-width: 92vw; max-height: 92vh; border-radius: 10px; }
+
+    /* Input area */
+    .input-area { padding: 14px 20px; border-top: 1px solid var(--border); background: var(--surface); display: flex; gap: 10px; align-items: flex-end; flex-shrink: 0; }
+    .attach-btn { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 10px; width: 44px; height: 44px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; transition: color 0.2s, border-color 0.2s; }
+    .attach-btn:hover { color: var(--accent); border-color: var(--accent); }
+    #file-input { display: none; }
+    #upload-bar { display: none; height: 3px; background: var(--border); border-radius: 2px; margin: 0 20px 10px; flex-shrink: 0; overflow: hidden; }
+    #upload-bar.show { display: block; }
+    #upload-fill { height: 100%; width: 0%; background: var(--accent); transition: width 0.3s; border-radius: 2px; }
+    #upload-hint { font-size: 11px; color: var(--muted); text-align: center; padding: 0 20px 8px; flex-shrink: 0; }
+    #msg-input { flex: 1; background: #111; border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; color: var(--text); font-size: 15px; font-family: 'DM Sans', sans-serif; resize: none; outline: none; max-height: 120px; line-height: 1.5; transition: border-color 0.2s; }
+    #msg-input:focus { border-color: var(--accent); }
+    #msg-input::placeholder { color: #444; }
+    #send-btn { background: var(--accent); border: none; border-radius: 12px; width: 44px; height: 44px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: background 0.2s, transform 0.1s; }
+    #send-btn:hover  { background: #d726dd; }
+    #send-btn:active { transform: scale(0.93); }
+    #send-btn svg { width: 19px; height: 19px; fill: #fff; }
+
+    /* No-key warning */
+    #no-key-warning { display: none; background: rgba(232,93,117,0.1); border-bottom: 1px solid rgba(232,93,117,0.3); padding: 10px 24px; font-size: 13px; color: var(--danger); text-align: center; flex-shrink: 0; }
+    #no-key-warning.show { display: block; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">ENTROP<span>y</span></div>
+  <div class="header-right">
+    <div class="e2e-badge">E2E 🔒</div>
+    {% if is_admin %}
+      <a class="admin-badge" href="/admin">Admin</a>
+    {% endif %}
+    <div class="you-badge">Signed in as <strong>{{ username }}</strong></div>
+    <button class="logout-btn" onclick="location.href='/logout'">Sign out</button>
+  </div>
+</header>
+
+<div id="no-key-warning" class="show">
+  Group key not found — messages cannot be decrypted.
+  <a href="/logout" style="color:var(--danger);margin-left:6px">Sign out and sign back in.</a>
+</div>
+
+<div id="upload-bar"><div id="upload-fill"></div></div>
+
+<div id="messages">
+  <div class="empty-state" id="empty">
+    <div class="icon">💬</div>
+    <p>No messages yet. Say hello!</p>
+  </div>
+</div>
+
+<div id="upload-hint">Attachments up to {{ max_upload_label }}</div>
+<div class="input-area">
+  <button class="attach-btn" onclick="document.getElementById('file-input').click()" title="Attach file (max {{ max_upload_label }})">📎</button>
+  <input type="file" id="file-input" accept="image/*,audio/*,.pdf,.txt,.zip,.mp4,.mov"/>
+  <textarea id="msg-input" rows="1" placeholder="Type a message…{% if is_admin %} ({{ nuke_cmd }} to clear all){% endif %}"></textarea>
+  <button id="send-btn" title="Send">
+    <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+  </button>
+</div>
+
+<div id="nuke-overlay">
+  <div class="nuke-box">
+    <div class="nuke-icon">💣</div>
+    <div class="nuke-title">NUKE the chat?</div>
+    <div class="nuke-sub">Permanently deletes every message and file. No undo.</div>
+    <div class="nuke-btns">
+      <button class="nuke-cancel" onclick="closeNuke()">Cancel</button>
+      <button class="nuke-confirm" onclick="confirmNuke()">Destroy it</button>
+    </div>
+  </div>
+</div>
+
+<div id="lightbox" onclick="closeLightbox()">
+  <img id="lightbox-img" src="" alt=""/>
+</div>
+
+<script type="module">
+  import { encryptText, decryptText, encryptFile, decryptFile, b64decode } from '/static/crypto.js';
+
+  const ME               = {{ username | tojson }};
+  const IS_ADMIN         = {{ is_admin | tojson }};
+  const NUKE_CMD         = {{ nuke_cmd | tojson }};
+  const MAX_UPLOAD_BYTES = {{ max_upload_bytes | tojson }};
+  const MAX_UPLOAD_LABEL = {{ max_upload_label | tojson }};
+
+  // ── Recover GROUP_KEY from sessionStorage ─────────────────────────────────
+  let GROUP_KEY = null;
+
+  async function loadGroupKey() {
+    const raw = sessionStorage.getItem("groupKey_raw");
+    if (!raw) return false;
+    try {
+      const bytes = b64decode(raw);
+      GROUP_KEY = await crypto.subtle.importKey(
+        "raw", bytes, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]
+      );
+      document.getElementById("no-key-warning").classList.remove("show");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // ── State ─────────────────────────────────────────────────────────────────
+  let lastCount   = 0;
   // Cache for decrypted blobs so we don't re-decrypt on every poll
   const blobCache = {};
 
