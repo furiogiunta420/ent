@@ -50,11 +50,7 @@ MAX_FILE_MB   = 16
 app.config["UPLOAD_FOLDER"]      = UPLOAD_FOLDER
 app.config["MAX_CONTENT_LENGTH"] = MAX_FILE_MB * 1024 * 1024
 
-# Uploads travel as base64 ciphertext inside a JSON body, not raw multipart,
-# so MAX_CONTENT_LENGTH caps the *encoded* request — not the original file.
-# Base64 inflates bytes by 4/3, AES-GCM adds a 12-byte IV + 16-byte tag, and
-# the JSON envelope (field names, filename, mime type) adds a little more.
-# Back-calculate the real original-file ceiling so the UI can show it honestly.
+
 JSON_ENVELOPE_RESERVE_BYTES = 2048
 CRYPTO_OVERHEAD_BYTES       = 28  # 12-byte IV + 16-byte GCM tag
 
@@ -102,7 +98,7 @@ def nuke_all() -> None:
 # ─── User / auth helpers ──────────────────────────────────────────────────────
 # Users are stored as username:auth_token_hash pairs.
 # auth_token_hash = SHA-256(client-derived PBKDF2 token).
-# The server never sees passwords or MSG_KEYs.
+
 
 def get_users() -> dict:
     users = {}
@@ -162,8 +158,6 @@ def require_admin():
         return jsonify({"error": "Forbidden"}), 403
     return None
 
-
-# ─── Static files (serve crypto.js) ──────────────────────────────────────────
 
 # ─── Auth routes ──────────────────────────────────────────────────────────────
 
@@ -227,9 +221,7 @@ def whoami():
 
 
 # ─── Group key routes ─────────────────────────────────────────────────────────
-# Each user has a copy of the GROUP_KEY wrapped with their personal WRAP_KEY.
-# The server stores wrapped blobs it cannot unwrap.
-# All users share the same GROUP_KEY so all can read all messages.
+
 
 @app.route("/groupkey", methods=["GET", "POST"])
 def groupkey_self():
